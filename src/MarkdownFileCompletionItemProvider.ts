@@ -3,6 +3,9 @@ import { RefType, getRefAt } from './Ref';
 import { NoteWorkspace } from './NoteWorkspace';
 import { NoteParser } from './NoteParser';
 
+interface Dictionary<T> {
+  [key: string]: T;
+}
 // Given a document and position, check whether the current word matches one of
 // these 2 contexts:
 // 1. [[wiki-links]]
@@ -10,6 +13,8 @@ import { NoteParser } from './NoteParser';
 //
 // If so, provide appropriate completion items from the current workspace
 export class MarkdownFileCompletionItemProvider implements vscode.CompletionItemProvider {
+  private _paths: Dictionary<string> = {};
+
   public async provideCompletionItems(
     document: vscode.TextDocument,
     position: vscode.Position,
@@ -37,12 +42,11 @@ export class MarkdownFileCompletionItemProvider implements vscode.CompletionItem
       case RefType.WikiLink:
         let files = await NoteWorkspace.noteFiles();
         items = files.map((f) => {
-          let kind = vscode.CompletionItemKind.File;
+          let kind = vscode.CompletionItemKind.Snippet;
           let label = NoteWorkspace.wikiLinkCompletionForConvention(f, document);
+          this._paths[label] = f.fsPath
           let item = new vscode.CompletionItem(label, kind);
-          let note = NoteParser.noteFromFsPath(f.fsPath)
-          item.detail = note.title
-          item.documentation = note.documentation()
+          item.commitCharacters = ['#', '|'] // ! for [[wiki-link#heading]] [[Text|wiki-link]]
           if (ref && ref.range) {
             item.range = ref.range;
           }
@@ -54,5 +58,19 @@ export class MarkdownFileCompletionItemProvider implements vscode.CompletionItem
         return [];
         break;
     }
+  }
+
+  public async resolveCompletionItem(
+    item: vscode.CompletionItem,
+    token: vscode.CancellationToken
+  ): Promise<vscode.CompletionItem> {
+    let fsPath = this._paths[item.label]
+    if (fsPath) {
+      let note = NoteParser.noteFromFsPath(fsPath)
+      item.detail = note.title
+      item.documentation = note.documentation()
+      delete this._paths[item.label]
+    }
+    return item
   }
 }
